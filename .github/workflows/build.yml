@@ -1,3 +1,4 @@
+
 name: Build KernelSU Next
 
 on:
@@ -13,7 +14,7 @@ jobs:
       - name: Setup Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git build-essential bc libncurses5-dev libssl-dev flex bison libelf-dev zip unzip libc6-dev-i386 lib32z1-dev
+          sudo apt-get install -y git build-essential bc libncurses5-dev libssl-dev flex bison libelf-dev zip unzip libc6-dev-i386 lib32z1-dev python3
 
       - name: Fetch AOSP Toolchains
         run: |
@@ -28,17 +29,29 @@ jobs:
 
       - name: Fix Missing Kconfig Files Automatically
         run: |
-          set +e
-          find . -type l ! -exec test -e {} \; -delete
-          grep -r -E "^[[:space:]]*(source|rsource)" . | grep -oP '(?<=")[^"]+' | while read -r file; do
-            if [ ! -f "$file" ]; then
-              DIR=$(dirname "$file")
-              [ -e "$DIR" ] && [ ! -d "$DIR" ] && rm -rf "$DIR"
-              mkdir -p "$DIR" 2>/dev/null || true
-              touch "$file" 2>/dev/null || true
-            fi
-          done
-          set -e
+          python3 -c '
+          import os, re
+          pattern = re.compile(r"^\s*(?:r?source)\s+[\"\x27]?([^\"\x27\s]+)[\"\x27]?", re.M)
+          for _ in range(3):
+              for root, _, files in os.walk("."):
+                  for file in files:
+                      if "Kconfig" in file:
+                          filepath = os.path.join(root, file)
+                          try:
+                              with open(filepath, "r", errors="ignore") as f:
+                                  content = f.read()
+                              for target in pattern.findall(content):
+                                  target = target.strip()
+                                  if target and not os.path.exists(target):
+                                      os.makedirs(os.path.dirname(target), exist_ok=True)
+                                      open(target, "w").close()
+                                      mk = os.path.join(os.path.dirname(target), "Makefile")
+                                      if not os.path.exists(mk):
+                                          with open(mk, "w") as mf:
+                                              mf.write("obj-y += \n")
+                          except Exception:
+                              pass
+          '
 
       - name: Compile Kernel
         run: |
