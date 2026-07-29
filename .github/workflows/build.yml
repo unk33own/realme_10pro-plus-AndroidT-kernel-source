@@ -36,7 +36,7 @@ jobs:
           zip -r9 ../KernelSU-Next-RMX3686.zip *
 
       - name: Upload Kernel ZIP
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: KernelSU-Next-Kernel
           path: KernelSU-Next-RMX3686.zip
