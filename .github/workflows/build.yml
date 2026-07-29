@@ -8,12 +8,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Kernel Source
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup Build Environment
+      - name: Setup Dependencies
         run: |
           sudo apt update
-          sudo apt install -y git build-essential bc libncurses5-dev libssl-dev flex bison libelf-dev zip unzip clang lld
+          sudo apt install -y git build-essential bc libncurses5-dev libssl-dev flex bison libelf-dev zip unzip libssl-dev libc6-dev-i386 lib32ncurses5-dev lib32z1-dev
+
+      - name: Fetch AOSP Toolchains
+        run: |
+          mkdir -p toolchain
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 toolchain/clang
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 toolchain/gcc64
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain/gcc32
 
       - name: Integrate KernelSU Next
         run: |
@@ -23,20 +30,31 @@ jobs:
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
-          make O=out vendor/roma_defconfig
-          echo "CONFIG_KSU=y" >> out/.config
-          echo "CONFIG_KSU_TAMPER_SYS_CALL=y" >> out/.config
-          make -j$(nproc) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android-
+          export PATH=$(pwd)/toolchain/clang/clang-r383902/bin:$(pwd)/toolchain/gcc64/bin:$(pwd)/toolchain/gcc32/bin:$PATH
+          mkdir -p kernel/sched_assist
+          touch kernel/sched_assist/Kconfig
+          echo "obj-y +=" > kernel/sched_assist/Makefile
+          DEFCONFIG_FILE="vendor/roma_defconfig"
+          echo "CONFIG_KSU=y" >> arch/arm64/configs/$DEFCONFIG_FILE
+          echo "CONFIG_KSU_TAMPER_SYS_CALL=y" >> arch/arm64/configs/$DEFCONFIG_FILE
+          make O=out $DEFCONFIG_FILE
+          make -j$(nproc) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-
 
-      - name: Pack with AnyKernel3
+      - name: Pack Kernel Output
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          cp out/arch/arm64/boot/Image AnyKernel3/
-          cd AnyKernel3
-          zip -r9 ../KernelSU-Next-RMX3686.zip *
+          mkdir -p output
+          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp out/arch/arm64/boot/Image.gz-dtb output/kernel
+          elif [ -f out/arch/arm64/boot/Image.gz ]; then
+            cp out/arch/arm64/boot/Image.gz output/kernel
+          elif [ -f out/arch/arm64/boot/Image ]; then
+            cp out/arch/arm64/boot/Image output/kernel
+          fi
+          cd output && zip -r ../KernelSU-Next-RMX3686.zip *
 
       - name: Upload Kernel ZIP
         uses: actions/upload-artifact@v4
         with:
           name: KernelSU-Next-Kernel
           path: KernelSU-Next-RMX3686.zip
+          
