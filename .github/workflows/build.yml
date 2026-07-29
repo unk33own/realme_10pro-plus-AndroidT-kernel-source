@@ -32,12 +32,18 @@ jobs:
           export SUBARCH=arm64
           export PATH=$(pwd)/toolchain/clang/clang-r383902/bin:$(pwd)/toolchain/gcc64/bin:$(pwd)/toolchain/gcc32/bin:$PATH
           
-          rm -rf kernel/sched_assist
-          mkdir -p kernel/sched_assist
-          touch kernel/sched_assist/Kconfig
-          echo "obj-y +=" > kernel/sched_assist/Makefile
+          mkdir -p kernel/sched_assist kernel/locking/klockopt drivers/soc/oplus
+          
+          [ ! -f kernel/sched_assist/Kconfig ] && touch kernel/sched_assist/Kconfig
+          [ ! -f kernel/sched_assist/Makefile ] && echo "obj-y +=" > kernel/sched_assist/Makefile
+          
+          [ ! -f kernel/locking/klockopt/Kconfig ] && touch kernel/locking/klockopt/Kconfig
+          [ ! -f kernel/locking/klockopt/Makefile ] && echo "obj-y +=" > kernel/locking/klockopt/Makefile
+          
+          [ ! -f drivers/soc/oplus/Kconfig ] && touch drivers/soc/oplus/Kconfig
+          [ ! -f drivers/soc/oplus/Makefile ] && echo "obj-y +=" > drivers/soc/oplus/Makefile
 
-          CONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*roma*" -o -name "*3686*" -o -name "*defconfig*" \) | head -n 1)
+          CONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*roma*" -o -name "*3686*" -o -name "*k6873*" -o -name "*defconfig*" \) | head -n 1)
           
           echo "CONFIG_KSU=y" >> $CONFIG_PATH
           echo "CONFIG_KSU_TAMPER_SYS_CALL=y" >> $CONFIG_PATH
