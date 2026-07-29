@@ -26,23 +26,23 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 
+      - name: Fix Missing Kconfig Files Automatically
+        run: |
+          grep -r -E "^[[:space:]]*(source|rsource)" . | grep -oP '(?<=")[^"]+' | while read -r file; do
+            if [ ! -f "$file" ]; then
+              mkdir -p "$(dirname "$file")"
+              touch "$file"
+              if [[ "$file" == *"Makefile"* ]]; then
+                echo "obj-y +=" > "$file"
+              fi
+            fi
+          done
+
       - name: Compile Kernel
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=$(pwd)/toolchain/clang/clang-r383902/bin:$(pwd)/toolchain/gcc64/bin:$(pwd)/toolchain/gcc32/bin:$PATH
-          
-          rm -rf kernel/sched_assist kernel/locking/klockopt drivers/soc/oplus
-          mkdir -p kernel/sched_assist kernel/locking/klockopt drivers/soc/oplus || true
-          
-          touch kernel/sched_assist/Kconfig
-          echo "obj-y +=" > kernel/sched_assist/Makefile
-          
-          touch kernel/locking/klockopt/Kconfig
-          echo "obj-y +=" > kernel/locking/klockopt/Makefile
-          
-          touch drivers/soc/oplus/Kconfig
-          echo "obj-y +=" > drivers/soc/oplus/Makefile
 
           CONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*roma*" -o -name "*3686*" -o -name "*k6873*" -o -name "*defconfig*" \) | head -n 1)
           
