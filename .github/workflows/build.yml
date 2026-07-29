@@ -28,15 +28,17 @@ jobs:
 
       - name: Fix Missing Kconfig Files Automatically
         run: |
+          set +e
+          find . -type l ! -exec test -e {} \; -delete
           grep -r -E "^[[:space:]]*(source|rsource)" . | grep -oP '(?<=")[^"]+' | while read -r file; do
             if [ ! -f "$file" ]; then
-              mkdir -p "$(dirname "$file")"
-              touch "$file"
-              if [[ "$file" == *"Makefile"* ]]; then
-                echo "obj-y +=" > "$file"
-              fi
+              DIR=$(dirname "$file")
+              [ -e "$DIR" ] && [ ! -d "$DIR" ] && rm -rf "$DIR"
+              mkdir -p "$DIR" 2>/dev/null || true
+              touch "$file" 2>/dev/null || true
             fi
           done
+          set -e
 
       - name: Compile Kernel
         run: |
