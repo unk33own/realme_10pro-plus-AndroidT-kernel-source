@@ -13,7 +13,7 @@ jobs:
       - name: Setup Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git build-essential bc libncurses5-dev libssl-dev flex bison libelf-dev zip unzip libssl-dev libc6-dev-i386 lib32z1-dev
+          sudo apt-get install -y git build-essential bc libncurses5-dev libssl-dev flex bison libelf-dev zip unzip libc6-dev-i386 lib32z1-dev
 
       - name: Fetch AOSP Toolchains
         run: |
@@ -31,14 +31,20 @@ jobs:
           export ARCH=arm64
           export SUBARCH=arm64
           export PATH=$(pwd)/toolchain/clang/clang-r383902/bin:$(pwd)/toolchain/gcc64/bin:$(pwd)/toolchain/gcc32/bin:$PATH
+          
           rm -rf kernel/sched_assist
           mkdir -p kernel/sched_assist
           touch kernel/sched_assist/Kconfig
           echo "obj-y +=" > kernel/sched_assist/Makefile
-          DEFCONFIG_FILE="vendor/roma_defconfig"
-          echo "CONFIG_KSU=y" >> arch/arm64/configs/$DEFCONFIG_FILE
-          echo "CONFIG_KSU_TAMPER_SYS_CALL=y" >> arch/arm64/configs/$DEFCONFIG_FILE
-          make O=out $DEFCONFIG_FILE
+
+          CONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*roma*" -o -name "*3686*" -o -name "*defconfig*" \) | head -n 1)
+          
+          echo "CONFIG_KSU=y" >> $CONFIG_PATH
+          echo "CONFIG_KSU_TAMPER_SYS_CALL=y" >> $CONFIG_PATH
+          
+          TARGET_DEFCONFIG=$(basename $CONFIG_PATH)
+          
+          make O=out $TARGET_DEFCONFIG
           make -j$(nproc) O=out CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-
 
       - name: Pack Kernel Output
