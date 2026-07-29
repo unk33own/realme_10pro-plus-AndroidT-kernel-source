@@ -26,7 +26,7 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 
-             - name: Compile Kernel
+      - name: Compile Kernel
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
