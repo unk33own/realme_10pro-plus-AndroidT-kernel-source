@@ -48,7 +48,6 @@ jobs:
 
           print("--- Starting Auto-Fix for Broken Symlinks & Kernel Source ---")
 
-          # 1. Remove all broken symlinks across the repo
           for root, dirs, files in os.walk(".", topdown=False):
               for name in files + dirs:
                   full_path = os.path.join(root, name)
@@ -95,7 +94,6 @@ jobs:
                   with open(path, "w") as f:
                       f.write(default_content)
 
-          # 2. Fix Kconfig includes
           for _ in range(2):
               for root, dirs, files in os.walk("."):
                   for f in files:
@@ -134,7 +132,6 @@ jobs:
                           except Exception as e:
                               print(f"Error on {kpath}: {e}")
 
-          # 3. Fix Makefile subdirectories
           mk_pattern = re.compile(r'(?:obj-[\w\$\(\)]+|core-y|drivers-y|libs-y|net-y|subdir-y)\s*\+?=\s*([a-zA-Z0-9_\-\/]+)/')
           for root, dirs, files in os.walk("."):
               for f in files:
@@ -166,7 +163,12 @@ jobs:
         run: |
           export ARCH=arm64
           export SUBARCH=arm64
-          export PATH=$(pwd)/toolchain/clang/bin:$(pwd)/toolchain/gcc64/bin:$(pwd)/toolchain/gcc32/bin:$PATH
+          
+          CLANG_DIR="$(pwd)/toolchain/clang/bin"
+          GCC64_DIR="$(pwd)/toolchain/gcc64/bin"
+          GCC32_DIR="$(pwd)/toolchain/gcc32/bin"
+
+          export PATH=$GCC64_DIR:$GCC32_DIR:$PATH:$CLANG_DIR
 
           CONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*roma*" -o -name "*3686*" -o -name "*k6873*" -o -name "*defconfig*" \) | head -n 1)
           TARGET_DEFCONFIG=$(basename $CONFIG_PATH)
@@ -174,13 +176,15 @@ jobs:
           echo "CONFIG_KSU=y" >> $CONFIG_PATH
           echo "CONFIG_KSU_TAMPER_SYS_CALL=y" >> $CONFIG_PATH
 
-          make O=out $TARGET_DEFCONFIG
+          make O=out HOSTCC=gcc HOSTCXX=g++ $TARGET_DEFCONFIG
 
           KCFLAGS="-w" make -j$(nproc) O=out \
-            CC=clang \
+            HOSTCC=gcc \
+            HOSTCXX=g++ \
+            CC=$CLANG_DIR/clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-android- \
-            CROSS_COMPILE_ARM32=arm-linux-androideabi- \
+            CROSS_COMPILE=$GCC64_DIR/aarch64-linux-android- \
+            CROSS_COMPILE_ARM32=$GCC32_DIR/arm-linux-androideabi- \
             CONFIG_NO_ERROR_ON_MISMATCH=y
 
       - name: Pack Kernel Output with AnyKernel3
