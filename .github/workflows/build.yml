@@ -36,8 +36,28 @@ jobs:
       - name: Pre-fix Missing Kconfig Directories
         run: |
           python3 -c '
-          import os, re
-          for _ in range(3):
+          import os, re, shutil
+
+          def ensure_file(target_path):
+              try:
+                  target_path = os.path.normpath(target_path)
+                  d = os.path.dirname(target_path)
+                  if d:
+                      if os.path.exists(d) and not os.path.isdir(d):
+                          os.remove(d)
+                      os.makedirs(d, exist_ok=True)
+                      mk = os.path.join(d, "Makefile")
+                      if not os.path.exists(mk):
+                          with open(mk, "w") as f:
+                              f.write("obj-y +=\n")
+                  if os.path.exists(target_path) and os.path.isdir(target_path):
+                      shutil.rmtree(target_path)
+                  if not os.path.exists(target_path):
+                      open(target_path, "w").close()
+              except Exception:
+                  pass
+
+          for _ in range(5):
               for root, _, files in os.walk("."):
                   for file in files:
                       if "Kconfig" in file:
@@ -48,20 +68,13 @@ jobs:
                               new_lines = []
                               modified = False
                               for line in lines:
-                                  m = re.search(r"(?:source|rsource)\s+[\"\x27]?([^\"\x27\s]+)[\"\x27]?", line)
+                                  m = re.search(r"^\s*(?:source|rsource)\s+[\"\']?([^\"\x27\s\n]+)[\"\']?", line)
                                   if m:
                                       target = m.group(1).strip()
                                       rel_target = os.path.normpath(os.path.join(root, target)) if "rsource" in line else os.path.normpath(target)
                                       if not os.path.exists(rel_target):
                                           modified = True
-                                          d = os.path.dirname(rel_target)
-                                          if d:
-                                              os.makedirs(d, exist_ok=True)
-                                              mk = os.path.join(d, "Makefile")
-                                              if not os.path.exists(mk):
-                                                  open(mk, "w").write("obj-y += \n")
-                                          open(rel_target, "w").close()
-                                          new_lines.append("# " + line)
+                                          ensure_file(rel_target)
                                           continue
                                   new_lines.append(line)
                               if modified:
@@ -115,4 +128,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: KernelSU-Next-Flashable
-          path: KernelSU-Next-RMX3686-Flashable.zip
+          path: KernelSU-Next-RMX3686-Flashable.zip 
