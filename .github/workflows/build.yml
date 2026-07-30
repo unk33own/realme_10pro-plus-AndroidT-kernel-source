@@ -35,7 +35,7 @@ jobs:
 
       - name: Pre-fix Missing Kconfig Directories
         run: |
-          python3 -c '
+          cat << 'EOF' > fix_kconfig.py
           import os, re, shutil
 
           def ensure_file(target_path):
@@ -68,7 +68,7 @@ jobs:
                               new_lines = []
                               modified = False
                               for line in lines:
-                                  m = re.search(r"^\s*(?:source|rsource)\s+[\"\']?([^\"\x27\s\n]+)[\"\']?", line)
+                                  m = re.search(r"^\s*(?:source|rsource)\s+[\"']?([^\"'\s\n]+)[\"']?", line)
                                   if m:
                                       target = m.group(1).strip()
                                       rel_target = os.path.normpath(os.path.join(root, target)) if "rsource" in line else os.path.normpath(target)
@@ -82,7 +82,9 @@ jobs:
                                       f.writelines(new_lines)
                           except Exception:
                               pass
-          '
+          EOF
+          python3 fix_kconfig.py
+          rm fix_kconfig.py
 
       - name: Compile Kernel
         run: |
@@ -128,4 +130,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: KernelSU-Next-Flashable
-          path: KernelSU-Next-RMX3686-Flashable.zip 
+          path: KernelSU-Next-RMX3686-Flashable.zip
