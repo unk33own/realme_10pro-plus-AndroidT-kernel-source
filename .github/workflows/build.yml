@@ -151,11 +151,12 @@ jobs:
           echo "CONFIG_KSU=y" >> $CONFIG_PATH
           echo "CONFIG_KSU_TAMPER_SYS_CALL=y" >> $CONFIG_PATH
 
-          make O=out HOSTCC=gcc HOSTCXX=g++ $TARGET_DEFCONFIG
+          make O=out HOSTCC=gcc HOSTCXX=g++ HOSTCFLAGS="-fcommon" $TARGET_DEFCONFIG
 
           KCFLAGS="-w" make -j$(nproc) O=out \
             HOSTCC=gcc \
             HOSTCXX=g++ \
+            HOSTCFLAGS="-fcommon" \
             CC=$CLANG_DIR/clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=$GCC64_DIR/aarch64-linux-android- \
