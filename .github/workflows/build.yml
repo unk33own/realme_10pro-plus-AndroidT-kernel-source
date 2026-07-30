@@ -35,6 +35,7 @@ jobs:
 
       - name: Pre-fix Missing Kconfig Directories
         run: |
+          rm -rf kernel/sched_assist
           mkdir -p kernel/sched_assist
           touch kernel/sched_assist/Kconfig
           echo "obj-y += " > kernel/sched_assist/Makefile
@@ -53,9 +54,11 @@ jobs:
                               for target in pattern.findall(content):
                                   target = target.strip()
                                   if target and not os.path.exists(target):
-                                      os.makedirs(os.path.dirname(target), exist_ok=True)
+                                      d = os.path.dirname(target)
+                                      if d:
+                                          os.makedirs(d, exist_ok=True)
                                       open(target, "w").close()
-                                      mk = os.path.join(os.path.dirname(target), "Makefile")
+                                      mk = os.path.join(d, "Makefile") if d else "Makefile"
                                       if not os.path.exists(mk):
                                           with open(mk, "w") as mf:
                                               mf.write("obj-y += \n")
