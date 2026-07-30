@@ -38,72 +38,84 @@ jobs:
           cat << 'EOF' > auto_fix_source.py
           import os, re, shutil
 
-          def create_stub_dir(dir_path):
-              if not dir_path or dir_path == ".":
-                  return
-              try:
-                  dir_path = os.path.normpath(dir_path)
-                  if os.path.exists(dir_path) and not os.path.isdir(dir_path):
-                      os.remove(dir_path)
-                  os.makedirs(dir_path, exist_ok=True)
-                  
-                  mk = os.path.join(dir_path, "Makefile")
-                  if not os.path.exists(mk):
-                      with open(mk, "w") as f:
-                          f.write("obj-y +=\n")
+          print("--- Starting Auto-Fix for Kernel Source ---")
+
+          for root, _, files in os.walk("."):
+              for f in files:
+                  if "Kconfig" in f:
+                      kpath = os.path.normpath(os.path.join(root, f))
+                      try:
+                          with open(kpath, "r", errors="ignore") as file_obj:
+                              lines = file_obj.readlines()
                           
-                  kc = os.path.join(dir_path, "Kconfig")
-                  if not os.path.exists(kc):
-                      open(kc, "w").close()
-              except Exception:
-                  pass
-
-          # 1. Fix Missing Kconfig includes
-          for _ in range(3):
-              for root, _, files in os.walk("."):
-                  for file in files:
-                      if "Kconfig" in file:
-                          filepath = os.path.join(root, file)
-                          try:
-                              with open(filepath, "r", errors="ignore") as f:
-                                  lines = f.readlines()
-                              new_lines = []
-                              modified = False
-                              for line in lines:
-                                  m = re.search(r"^\s*(?:source|rsource)\s+[\"']?([^\"'\s\n]+)[\"']?", line)
-                                  if m:
-                                      target = m.group(1).strip()
-                                      rel_target = os.path.normpath(os.path.join(root, target)) if "rsource" in line else os.path.normpath(target)
-                                      if not os.path.exists(rel_target):
-                                          create_stub_dir(os.path.dirname(rel_target))
-                                          open(rel_target, "w").close()
-                                          modified = True
+                          new_lines = []
+                          modified = False
+                          for line in lines:
+                              matches = re.findall(r'(?:source|rsource)\s+["\']?([^"\'\s\n#]+)["\']?', line)
+                              if matches:
+                                  for target in matches:
+                                      target = target.strip()
+                                      if not target:
                                           continue
-                                  new_lines.append(line)
-                              if modified:
-                                  with open(filepath, "w") as f:
-                                      f.writelines(new_lines)
-                          except Exception:
-                              pass
+                                      rel_target = os.path.normpath(os.path.join(root, target)) if "rsource" in line else os.path.normpath(target)
+                                      
+                                      if not os.path.exists(rel_target):
+                                          parent = os.path.dirname(rel_target)
+                                          if parent:
+                                              if os.path.exists(parent) and not os.path.isdir(parent):
+                                                  os.remove(parent)
+                                              os.makedirs(parent, exist_ok=True)
+                                              
+                                              mk = os.path.join(parent, "Makefile")
+                                              if not os.path.exists(mk):
+                                                  with open(mk, "w") as mf:
+                                                      mf.write("obj-y +=\n")
+                                          
+                                          if os.path.exists(rel_target) and os.path.isdir(rel_target):
+                                              shutil.rmtree(rel_target)
+                                          
+                                          with open(rel_target, "w") as tf:
+                                              tf.write("\n")
+                                          
+                                          print(f"[FIXED KCONFIG] Created stub for: {rel_target}")
+                                          modified = True
+                                          line = "# " + line
+                              new_lines.append(line)
+                          
+                          if modified:
+                              with open(kpath, "w") as file_obj:
+                                  file_obj.writelines(new_lines)
+                      except Exception as e:
+                          print(f"Error on {kpath}: {e}")
 
-          # 2. Fix Missing Makefile subdirectories (like rootguard, sched_assist)
           mk_pattern = re.compile(r'(?:obj-[\w\$\(\)]+|core-y|drivers-y|libs-y|net-y|subdir-y)\s*\+?=\s*([a-zA-Z0-9_\-\/]+)/')
-          for _ in range(3):
-              for root, _, files in os.walk("."):
-                  for file in files:
-                      if file in ["Makefile", "Kbuild"] or file.endswith(".mk"):
-                          filepath = os.path.join(root, file)
-                          try:
-                              with open(filepath, "r", errors="ignore") as f:
-                                  content = f.read()
-                              for sub in mk_pattern.findall(content):
-                                  sub = sub.strip()
-                                  if sub:
-                                      target_dir = os.path.normpath(os.path.join(root, sub))
-                                      if not os.path.exists(os.path.join(target_dir, "Makefile")):
-                                          create_stub_dir(target_dir)
-                          except Exception:
-                              pass
+          for root, _, files in os.walk("."):
+              for f in files:
+                  if f in ["Makefile", "Kbuild"] or f.endswith(".mk"):
+                      mpath = os.path.normpath(os.path.join(root, f))
+                      try:
+                          with open(mpath, "r", errors="ignore") as file_obj:
+                              content = file_obj.read()
+                          
+                          for sub in mk_pattern.findall(content):
+                              sub = sub.strip()
+                              if sub:
+                                  target_dir = os.path.normpath(os.path.join(root, sub))
+                                  target_mk = os.path.join(target_dir, "Makefile")
+                                  if not os.path.exists(target_mk):
+                                      if os.path.exists(target_dir) and not os.path.isdir(target_dir):
+                                          os.remove(target_dir)
+                                      os.makedirs(target_dir, exist_ok=True)
+                                      with open(target_mk, "w") as mf:
+                                          mf.write("obj-y +=\n")
+                                      kc = os.path.join(target_dir, "Kconfig")
+                                      if not os.path.exists(kc):
+                                          open(kc, "w").close()
+                                      print(f"[FIXED MAKEFILE] Created stub dir: {target_dir}")
+                      except Exception as e:
+                          print(f"Error on {mpath}: {e}")
+
+          print("--- Auto-Fix Completed ---")
           EOF
           python3 auto_fix_source.py
           rm auto_fix_source.py
@@ -143,7 +155,7 @@ jobs:
             exit 1
           fi
 
-          find out/arch/arm64/boot/dts/ -name "*.dtb" -exec cp {} AnyKernel3/ \; 2>/dev/null || true
+          find out/arch/arm64/boot/dts/ -name "*.dtb" -exec cp {} AnyKernel3/ \; 2>/devnull || true
 
           cd AnyKernel3
           zip -r ../KernelSU-Next-RMX3686-Flashable.zip * -x .git\* README.md
