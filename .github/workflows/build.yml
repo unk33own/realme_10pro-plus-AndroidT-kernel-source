@@ -1,4 +1,4 @@
-name: Build KernelSU Next Auto Fix
+name: Build KernelSU Next Legacy Auto Fix
 
 on:
   workflow_dispatch:
@@ -37,9 +37,9 @@ jobs:
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 toolchain/gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain/gcc32
 
-      - name: Integrate KernelSU Next
+      - name: Integrate KernelSU Next (Legacy Branch)
         run: |
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
       - name: Pre-fix Broken Symlinks, Kconfig and Makefiles
         run: |
@@ -148,8 +148,11 @@ jobs:
           CONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*roma*" -o -name "*3686*" -o -name "*k6873*" -o -name "*defconfig*" \) | head -n 1)
           TARGET_DEFCONFIG=$(basename $CONFIG_PATH)
           
+          # Enable KSU and Kprobes flags
           echo "CONFIG_KSU=y" >> $CONFIG_PATH
-          echo "CONFIG_KSU_TAMPER_SYS_CALL=y" >> $CONFIG_PATH
+          echo "CONFIG_KPROBES=y" >> $CONFIG_PATH
+          echo "CONFIG_HAVE_KPROBES=y" >> $CONFIG_PATH
+          echo "CONFIG_KRETPROBES=y" >> $CONFIG_PATH
 
           make O=out HOSTCC=gcc HOSTCXX=g++ HOSTCFLAGS="-fcommon" $TARGET_DEFCONFIG
 
@@ -180,10 +183,10 @@ jobs:
           find out/arch/arm64/boot/dts/ -name "*.dtb" -exec cp {} AnyKernel3/ \; 2>/devnull || true
 
           cd AnyKernel3
-          zip -r ../KernelSU-Next-RMX3686-Flashable.zip * -x .git\* README.md
+          zip -r ../KernelSU-Next-Legacy-RMX3686.zip * -x .git\* README.md
 
       - name: Upload Kernel Flashable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: KernelSU-Next-Flashable
-          path: KernelSU-Next-RMX3686-Flashable.zip
+          name: KernelSU-Next-Legacy-Flashable
+          path: KernelSU-Next-Legacy-RMX3686.zip
