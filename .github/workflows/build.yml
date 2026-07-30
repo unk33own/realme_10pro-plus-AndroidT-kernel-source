@@ -20,12 +20,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git build-essential bc libncurses5-dev libssl-dev flex bison libelf-dev zip unzip libc6-dev-i386 lib32z1-dev python3 liblz4-tool ccache
 
-      - name: Fetch Toolchains
+      - name: Cache Toolchains & CCache
+        id: cache-toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            toolchain
+            ~/.ccache
+          key: toolchains-proton-gcc-v1
+
+      - name: Fetch Toolchains Fast
+        if: steps.cache-toolchains.outputs.cache-hit != 'true'
         run: |
           mkdir -p toolchain
-          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 toolchain/clang_aosp
-          CLANG_PATH=$(find toolchain/clang_aosp -name "bin" -type d | grep "clang-r" | head -n 1 | xargs dirname)
-          mv $CLANG_PATH toolchain/clang
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain/clang
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 toolchain/gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain/gcc32
 
@@ -33,63 +41,102 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 
-      - name: Pre-fix Missing Kconfig and Makefiles
+      - name: Pre-fix Broken Symlinks, Kconfig and Makefiles
         run: |
           cat << 'EOF' > auto_fix_source.py
           import os, re, shutil
 
-          print("--- Starting Auto-Fix for Kernel Source ---")
+          print("--- Starting Auto-Fix for Broken Symlinks & Kernel Source ---")
 
-          for root, _, files in os.walk("."):
-              for f in files:
-                  if "Kconfig" in f:
-                      kpath = os.path.normpath(os.path.join(root, f))
+          # 1. Remove all broken symlinks across the repo
+          for root, dirs, files in os.walk(".", topdown=False):
+              for name in files + dirs:
+                  full_path = os.path.join(root, name)
+                  if os.path.islink(full_path):
+                      if not os.path.exists(full_path):
+                          print(f"[REMOVING BROKEN SYMLINK] {full_path}")
+                          try:
+                              os.unlink(full_path)
+                          except Exception:
+                              pass
+
+          def ensure_dir(path):
+              if not path or path == ".":
+                  return
+              if os.path.islink(path) or (os.path.exists(path) and not os.path.isdir(path)):
+                  try:
+                      os.remove(path)
+                  except Exception:
                       try:
-                          with open(kpath, "r", errors="ignore") as file_obj:
-                              lines = file_obj.readlines()
-                          
-                          new_lines = []
-                          modified = False
-                          for line in lines:
-                              matches = re.findall(r'(?:source|rsource)\s+["\']?([^"\'\s\n#]+)["\']?', line)
-                              if matches:
-                                  for target in matches:
-                                      target = target.strip()
-                                      if not target:
-                                          continue
-                                      rel_target = os.path.normpath(os.path.join(root, target)) if "rsource" in line else os.path.normpath(target)
-                                      
-                                      if not os.path.exists(rel_target):
-                                          parent = os.path.dirname(rel_target)
-                                          if parent:
-                                              if os.path.exists(parent) and not os.path.isdir(parent):
-                                                  os.remove(parent)
-                                              os.makedirs(parent, exist_ok=True)
-                                              
-                                              mk = os.path.join(parent, "Makefile")
-                                              if not os.path.exists(mk):
-                                                  with open(mk, "w") as mf:
-                                                      mf.write("obj-y +=\n")
-                                          
-                                          if os.path.exists(rel_target) and os.path.isdir(rel_target):
-                                              shutil.rmtree(rel_target)
-                                          
-                                          with open(rel_target, "w") as tf:
-                                              tf.write("\n")
-                                          
-                                          print(f"[FIXED KCONFIG] Created stub for: {rel_target}")
-                                          modified = True
-                                          line = "# " + line
-                              new_lines.append(line)
-                          
-                          if modified:
-                              with open(kpath, "w") as file_obj:
-                                  file_obj.writelines(new_lines)
-                      except Exception as e:
-                          print(f"Error on {kpath}: {e}")
+                          shutil.rmtree(path)
+                      except Exception:
+                          pass
+              os.makedirs(path, exist_ok=True)
 
+          def ensure_file(path, default_content=""):
+              parent = os.path.dirname(path)
+              if parent:
+                  parts = parent.split(os.sep)
+                  curr = ""
+                  for p in parts:
+                      curr = os.path.join(curr, p) if curr else p
+                      ensure_dir(curr)
+              
+              if os.path.islink(path) or (os.path.exists(path) and os.path.isdir(path)):
+                  try:
+                      shutil.rmtree(path)
+                  except Exception:
+                      try:
+                          os.remove(path)
+                      except Exception:
+                          pass
+
+              if not os.path.exists(path):
+                  with open(path, "w") as f:
+                      f.write(default_content)
+
+          # 2. Fix Kconfig includes
+          for _ in range(2):
+              for root, dirs, files in os.walk("."):
+                  for f in files:
+                      if "Kconfig" in f:
+                          kpath = os.path.normpath(os.path.join(root, f))
+                          try:
+                              with open(kpath, "r", errors="ignore") as file_obj:
+                                  lines = file_obj.readlines()
+                              
+                              new_lines = []
+                              modified = False
+                              for line in lines:
+                                  matches = re.findall(r'(?:source|rsource)\s+["\']?([^"\'\s\n#]+)["\']?', line)
+                                  if matches:
+                                      for target in matches:
+                                          target = target.strip()
+                                          if not target:
+                                              continue
+                                          rel_target = os.path.normpath(os.path.join(root, target)) if "rsource" in line else os.path.normpath(target)
+                                          
+                                          if not os.path.isfile(rel_target):
+                                              parent = os.path.dirname(rel_target)
+                                              if parent:
+                                                  ensure_dir(parent)
+                                                  ensure_file(os.path.join(parent, "Makefile"), "obj-y +=\n")
+                                              
+                                              ensure_file(rel_target, "\n")
+                                              print(f"[FIXED KCONFIG] Created stub for: {rel_target}")
+                                              line = "# " + line
+                                              modified = True
+                                  new_lines.append(line)
+                              
+                              if modified:
+                                  with open(kpath, "w") as file_obj:
+                                      file_obj.writelines(new_lines)
+                          except Exception as e:
+                              print(f"Error on {kpath}: {e}")
+
+          # 3. Fix Makefile subdirectories
           mk_pattern = re.compile(r'(?:obj-[\w\$\(\)]+|core-y|drivers-y|libs-y|net-y|subdir-y)\s*\+?=\s*([a-zA-Z0-9_\-\/]+)/')
-          for root, _, files in os.walk("."):
+          for root, dirs, files in os.walk("."):
               for f in files:
                   if f in ["Makefile", "Kbuild"] or f.endswith(".mk"):
                       mpath = os.path.normpath(os.path.join(root, f))
@@ -102,15 +149,10 @@ jobs:
                               if sub:
                                   target_dir = os.path.normpath(os.path.join(root, sub))
                                   target_mk = os.path.join(target_dir, "Makefile")
-                                  if not os.path.exists(target_mk):
-                                      if os.path.exists(target_dir) and not os.path.isdir(target_dir):
-                                          os.remove(target_dir)
-                                      os.makedirs(target_dir, exist_ok=True)
-                                      with open(target_mk, "w") as mf:
-                                          mf.write("obj-y +=\n")
-                                      kc = os.path.join(target_dir, "Kconfig")
-                                      if not os.path.exists(kc):
-                                          open(kc, "w").close()
+                                  if not os.path.isfile(target_mk):
+                                      ensure_dir(target_dir)
+                                      ensure_file(target_mk, "obj-y +=\n")
+                                      ensure_file(os.path.join(target_dir, "Kconfig"), "\n")
                                       print(f"[FIXED MAKEFILE] Created stub dir: {target_dir}")
                       except Exception as e:
                           print(f"Error on {mpath}: {e}")
