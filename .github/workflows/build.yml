@@ -23,7 +23,9 @@ jobs:
       - name: Fetch Toolchains
         run: |
           mkdir -p toolchain
-          git clone --depth=1 https://gitlab.com/rama918/clang-r416183b toolchain/clang
+          git clone --depth=1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 toolchain/clang_aosp
+          CLANG_PATH=$(find toolchain/clang_aosp -name "bin" -type d | grep "clang-r" | head -n 1 | xargs dirname)
+          mv $CLANG_PATH toolchain/clang
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 toolchain/gcc64
           git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 toolchain/gcc32
 
