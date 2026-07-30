@@ -35,33 +35,38 @@ jobs:
 
       - name: Pre-fix Missing Kconfig Directories
         run: |
-          rm -rf kernel/sched_assist
-          mkdir -p kernel/sched_assist
-          touch kernel/sched_assist/Kconfig
-          echo "obj-y += " > kernel/sched_assist/Makefile
-
           python3 -c '
           import os, re
-          pattern = re.compile(r"^\s*(?:r?source)\s+[\"\x27]?([^\"\x27\s]+)[\"\x27]?", re.M)
-          for _ in range(5):
+          for _ in range(3):
               for root, _, files in os.walk("."):
                   for file in files:
                       if "Kconfig" in file:
                           filepath = os.path.join(root, file)
                           try:
                               with open(filepath, "r", errors="ignore") as f:
-                                  content = f.read()
-                              for target in pattern.findall(content):
-                                  target = target.strip()
-                                  if target and not os.path.exists(target):
-                                      d = os.path.dirname(target)
-                                      if d:
-                                          os.makedirs(d, exist_ok=True)
-                                      open(target, "w").close()
-                                      mk = os.path.join(d, "Makefile") if d else "Makefile"
-                                      if not os.path.exists(mk):
-                                          with open(mk, "w") as mf:
-                                              mf.write("obj-y += \n")
+                                  lines = f.readlines()
+                              new_lines = []
+                              modified = False
+                              for line in lines:
+                                  m = re.search(r"(?:source|rsource)\s+[\"\x27]?([^\"\x27\s]+)[\"\x27]?", line)
+                                  if m:
+                                      target = m.group(1).strip()
+                                      rel_target = os.path.normpath(os.path.join(root, target)) if "rsource" in line else os.path.normpath(target)
+                                      if not os.path.exists(rel_target):
+                                          modified = True
+                                          d = os.path.dirname(rel_target)
+                                          if d:
+                                              os.makedirs(d, exist_ok=True)
+                                              mk = os.path.join(d, "Makefile")
+                                              if not os.path.exists(mk):
+                                                  open(mk, "w").write("obj-y += \n")
+                                          open(rel_target, "w").close()
+                                          new_lines.append("# " + line)
+                                          continue
+                                  new_lines.append(line)
+                              if modified:
+                                  with open(filepath, "w") as f:
+                                      f.writelines(new_lines)
                           except Exception:
                               pass
           '
