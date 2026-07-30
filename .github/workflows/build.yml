@@ -33,31 +33,33 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
 
-      - name: Pre-fix Missing Kconfig Directories
+      - name: Pre-fix Missing Kconfig and Makefiles
         run: |
-          cat << 'EOF' > fix_kconfig.py
+          cat << 'EOF' > auto_fix_source.py
           import os, re, shutil
 
-          def ensure_file(target_path):
+          def create_stub_dir(dir_path):
+              if not dir_path or dir_path == ".":
+                  return
               try:
-                  target_path = os.path.normpath(target_path)
-                  d = os.path.dirname(target_path)
-                  if d:
-                      if os.path.exists(d) and not os.path.isdir(d):
-                          os.remove(d)
-                      os.makedirs(d, exist_ok=True)
-                      mk = os.path.join(d, "Makefile")
-                      if not os.path.exists(mk):
-                          with open(mk, "w") as f:
-                              f.write("obj-y +=\n")
-                  if os.path.exists(target_path) and os.path.isdir(target_path):
-                      shutil.rmtree(target_path)
-                  if not os.path.exists(target_path):
-                      open(target_path, "w").close()
+                  dir_path = os.path.normpath(dir_path)
+                  if os.path.exists(dir_path) and not os.path.isdir(dir_path):
+                      os.remove(dir_path)
+                  os.makedirs(dir_path, exist_ok=True)
+                  
+                  mk = os.path.join(dir_path, "Makefile")
+                  if not os.path.exists(mk):
+                      with open(mk, "w") as f:
+                          f.write("obj-y +=\n")
+                          
+                  kc = os.path.join(dir_path, "Kconfig")
+                  if not os.path.exists(kc):
+                      open(kc, "w").close()
               except Exception:
                   pass
 
-          for _ in range(5):
+          # 1. Fix Missing Kconfig includes
+          for _ in range(3):
               for root, _, files in os.walk("."):
                   for file in files:
                       if "Kconfig" in file:
@@ -73,8 +75,9 @@ jobs:
                                       target = m.group(1).strip()
                                       rel_target = os.path.normpath(os.path.join(root, target)) if "rsource" in line else os.path.normpath(target)
                                       if not os.path.exists(rel_target):
+                                          create_stub_dir(os.path.dirname(rel_target))
+                                          open(rel_target, "w").close()
                                           modified = True
-                                          ensure_file(rel_target)
                                           continue
                                   new_lines.append(line)
                               if modified:
@@ -82,9 +85,28 @@ jobs:
                                       f.writelines(new_lines)
                           except Exception:
                               pass
+
+          # 2. Fix Missing Makefile subdirectories (like rootguard, sched_assist)
+          mk_pattern = re.compile(r'(?:obj-[\w\$\(\)]+|core-y|drivers-y|libs-y|net-y|subdir-y)\s*\+?=\s*([a-zA-Z0-9_\-\/]+)/')
+          for _ in range(3):
+              for root, _, files in os.walk("."):
+                  for file in files:
+                      if file in ["Makefile", "Kbuild"] or file.endswith(".mk"):
+                          filepath = os.path.join(root, file)
+                          try:
+                              with open(filepath, "r", errors="ignore") as f:
+                                  content = f.read()
+                              for sub in mk_pattern.findall(content):
+                                  sub = sub.strip()
+                                  if sub:
+                                      target_dir = os.path.normpath(os.path.join(root, sub))
+                                      if not os.path.exists(os.path.join(target_dir, "Makefile")):
+                                          create_stub_dir(target_dir)
+                          except Exception:
+                              pass
           EOF
-          python3 fix_kconfig.py
-          rm fix_kconfig.py
+          python3 auto_fix_source.py
+          rm auto_fix_source.py
 
       - name: Compile Kernel
         run: |
