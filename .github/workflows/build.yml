@@ -41,14 +41,15 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-      - name: Pre-fix Broken Symlinks, Kconfig and Makefiles
+      - name: Pre-fix DTC yylloc & Broken Symlinks
         run: |
+          find scripts/dtc/ -type f \( -name "*.h" -o -name "*.c" -o -name "*.y" \) -exec sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} + 2>/devnull || true
+          
           cat << 'EOF' > auto_fix_source.py
           import os, re, shutil
 
           print("--- Starting Auto-Fix for Broken Symlinks & Missing Stubs ---")
 
-          # 1. Clean broken symlinks
           for root, dirs, files in os.walk(".", topdown=False):
               for name in files + dirs:
                   full_path = os.path.join(root, name)
@@ -83,7 +84,6 @@ jobs:
               except Exception as e:
                   print(f"Error creating stub {rel_target}: {e}")
 
-          # 2. Safely scan Kconfigs and create missing stubs WITHOUT modifying source files
           for _ in range(3):
               for root, dirs, files in os.walk("."):
                   for f in files:
@@ -102,7 +102,6 @@ jobs:
                           except Exception as e:
                               print(f"Error scanning {kpath}: {e}")
 
-          # 3. Ensure subdirectories referenced in Makefiles exist
           mk_pattern = re.compile(r'^\s*(?:obj-[\w\$\(\)]+|core-y|drivers-y|libs-y|net-y|subdir-y)\s*\+?=\s*([a-zA-Z0-9_\-\/]+)/', re.MULTILINE)
           for root, dirs, files in os.walk("."):
               for f in files:
@@ -148,18 +147,16 @@ jobs:
           CONFIG_PATH=$(find arch/arm64/configs -type f \( -name "*roma*" -o -name "*3686*" -o -name "*k6873*" -o -name "*defconfig*" \) | head -n 1)
           TARGET_DEFCONFIG=$(basename $CONFIG_PATH)
           
-          # Enable KSU and Kprobes flags
           echo "CONFIG_KSU=y" >> $CONFIG_PATH
           echo "CONFIG_KPROBES=y" >> $CONFIG_PATH
           echo "CONFIG_HAVE_KPROBES=y" >> $CONFIG_PATH
           echo "CONFIG_KRETPROBES=y" >> $CONFIG_PATH
 
-          make O=out HOSTCC=gcc HOSTCXX=g++ HOSTCFLAGS="-fcommon" $TARGET_DEFCONFIG
+          make O=out HOSTCC=gcc HOSTCXX=g++ $TARGET_DEFCONFIG
 
           KCFLAGS="-w" make -j$(nproc) O=out \
             HOSTCC=gcc \
             HOSTCXX=g++ \
-            HOSTCFLAGS="-fcommon" \
             CC=$CLANG_DIR/clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=$GCC64_DIR/aarch64-linux-android- \
