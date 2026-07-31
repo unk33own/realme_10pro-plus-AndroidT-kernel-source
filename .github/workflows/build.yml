@@ -41,9 +41,9 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-      - name: Pre-fix DTC yylloc & Broken Symlinks
+      - name: Pre-fix Broken Symlinks & DTC
         run: |
-          find scripts/dtc/ -type f \( -name "*.h" -o -name "*.c" -o -name "*.y" \) -exec sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} + 2>/devnull || true
+          find scripts/dtc/ -type f \( -name "*.h" -o -name "*.c" -o -name "*.y" -o -name "*.l" \) -exec sed -i 's/YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} + 2>/devnull || true
           
           cat << 'EOF' > auto_fix_source.py
           import os, re, shutil
@@ -152,11 +152,13 @@ jobs:
           echo "CONFIG_HAVE_KPROBES=y" >> $CONFIG_PATH
           echo "CONFIG_KRETPROBES=y" >> $CONFIG_PATH
 
-          make O=out HOSTCC=gcc HOSTCXX=g++ $TARGET_DEFCONFIG
+          make O=out HOSTCC=gcc HOSTCXX=g++ HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" $TARGET_DEFCONFIG
 
           KCFLAGS="-w" make -j$(nproc) O=out \
             HOSTCC=gcc \
             HOSTCXX=g++ \
+            HOSTCFLAGS="-fcommon" \
+            HOSTLDFLAGS="-fcommon" \
             CC=$CLANG_DIR/clang \
             CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=$GCC64_DIR/aarch64-linux-android- \
