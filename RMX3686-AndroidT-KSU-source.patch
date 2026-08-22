@@ -1,0 +1,202 @@
+diff --git a/arch/arm64/configs/k6877v1_64_k419_defconfig b/arch/arm64/configs/k6877v1_64_k419_defconfig
+index 38c18f947..8364e8c84 100755
+--- a/arch/arm64/configs/k6877v1_64_k419_defconfig
++++ b/arch/arm64/configs/k6877v1_64_k419_defconfig
+@@ -57,6 +57,10 @@ CONFIG_CPU_FREQ_GOV_POWERSAVE=y
+ CONFIG_CPU_FREQ_GOV_USERSPACE=y
+ CONFIG_CPU_FREQ_GOV_ONDEMAND=y
+ CONFIG_KPROBES=y
++# KernelSU Next legacy manual hooks
++CONFIG_KSU=y
++CONFIG_KSU_MANUAL_HOOK=y
++# CONFIG_KSU_KPROBES_HOOK is not set
+ #ifdef OPLUS_BUG_STABILITY
+ #CONFIG_LTO_CLANG is not set
+ #CONFIG_CFI_CLANG is not set
+diff --git a/drivers/base/kernelFwUpdate b/drivers/base/kernelFwUpdate
+index 6ac5e1a73..137d14c91 120000
+--- a/drivers/base/kernelFwUpdate
++++ b/drivers/base/kernelFwUpdate
+@@ -1 +1 @@
+-../../../../vnd/vendor/oplus/kernel/touchpanel/kernelFwUpdate/
+\ No newline at end of file
++../../../vendor/oplus/kernel/touchpanel/kernelFwUpdate/
+\ No newline at end of file
+diff --git a/drivers/block/zram/hybridswap/Makefile b/drivers/block/zram/hybridswap/Makefile
+new file mode 100644
+index 000000000..77b9efcf1
+--- /dev/null
++++ b/drivers/block/zram/hybridswap/Makefile
+@@ -0,0 +1,2 @@
++# SPDX-License-Identifier: GPL-2.0
++# Objects are listed by the parent drivers/block/zram/Makefile.
+diff --git a/fs/exec.c b/fs/exec.c
+index 6120876dc..9e30a5f2f 100755
+--- a/fs/exec.c
++++ b/fs/exec.c
+@@ -1890,13 +1890,18 @@ static int __do_execve_file(int fd, struct filename *filename,
+ }
+ 
+ static int do_execveat_common(int fd, struct filename *filename,
+-			      struct user_arg_ptr argv,
+-			      struct user_arg_ptr envp,
+-			      int flags)
++				      struct user_arg_ptr argv,
++				      struct user_arg_ptr envp,
++				      int flags)
+ {
+ 	return __do_execve_file(fd, filename, argv, envp, flags, NULL);
+ }
+ 
++#ifdef CONFIG_KSU
++extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
++				       void *argv, void *envp, int *flags);
++#endif
++
+ int do_execve_file(struct file *file, void *__argv, void *__envp)
+ {
+ 	struct user_arg_ptr argv = { .ptr.native = __argv };
+@@ -1911,6 +1916,9 @@ int do_execve(struct filename *filename,
+ {
+ 	struct user_arg_ptr argv = { .ptr.native = __argv };
+ 	struct user_arg_ptr envp = { .ptr.native = __envp };
++#ifdef CONFIG_KSU
++	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, NULL);
++#endif
+ 	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
+ }
+ 
+@@ -1927,8 +1935,8 @@ int do_execveat(int fd, struct filename *filename,
+ 
+ #ifdef CONFIG_COMPAT
+ static int compat_do_execve(struct filename *filename,
+-	const compat_uptr_t __user *__argv,
+-	const compat_uptr_t __user *__envp)
++				      const compat_uptr_t __user *__argv,
++				      const compat_uptr_t __user *__envp)
+ {
+ 	struct user_arg_ptr argv = {
+ 		.is_compat = true,
+@@ -1938,6 +1946,9 @@ static int compat_do_execve(struct filename *filename,
+ 		.is_compat = true,
+ 		.ptr.compat = __envp,
+ 	};
++#ifdef CONFIG_KSU
++	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, NULL);
++#endif
+ 	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
+ }
+ 
+diff --git a/fs/open.c b/fs/open.c
+index b14aef04e..98eca10bc 100644
+--- a/fs/open.c
++++ b/fs/open.c
+@@ -450,8 +450,16 @@ long do_faccessat(int dfd, const char __user *filename, int mode)
+ 	return res;
+ }
+ 
++#ifdef CONFIG_KSU
++extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
++				int *mode, int *flags);
++#endif
++
+ SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
+ {
++#ifdef CONFIG_KSU
++	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
++#endif
+ 	return do_faccessat(dfd, filename, mode);
+ }
+ 
+diff --git a/fs/read_write.c b/fs/read_write.c
+index 16f528580..04f224175 100755
+--- a/fs/read_write.c
++++ b/fs/read_write.c
+@@ -24,6 +24,12 @@
+ 
+ #include <linux/uaccess.h>
+ #include <asm/unistd.h>
++
++#ifdef CONFIG_KSU
++extern bool ksu_vfs_read_hook __read_mostly;
++extern void ksu_handle_sys_read(unsigned int fd);
++#endif
++
+ #if defined(OPLUS_FEATURE_IOMONITOR) && defined(CONFIG_IOMONITOR)
+ #include <linux/iomonitor/iomonitor.h>
+ #include <linux/iomonitor/iotrace.h>
+@@ -612,6 +618,10 @@ ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
+ 
+ SYSCALL_DEFINE3(read, unsigned int, fd, char __user *, buf, size_t, count)
+ {
++#ifdef CONFIG_KSU
++	if (unlikely(ksu_vfs_read_hook))
++		ksu_handle_sys_read(fd);
++#endif
+ 	return ksys_read(fd, buf, count);
+ }
+ 
+diff --git a/fs/stat.c b/fs/stat.c
+index f8e6fb2c3..129380a2d 100644
+--- a/fs/stat.c
++++ b/fs/stat.c
+@@ -354,12 +354,20 @@ SYSCALL_DEFINE2(newlstat, const char __user *, filename,
+ 	return cp_new_stat(&stat, statbuf);
+ }
+ 
++#ifdef CONFIG_KSU
++extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
++				int *flags);
++#endif
++
+ #if !defined(__ARCH_WANT_STAT64) || defined(__ARCH_WANT_SYS_NEWFSTATAT)
+ SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+ 		struct stat __user *, statbuf, int, flag)
+ {
+ 	struct kstat stat;
+ 	int error;
++#ifdef CONFIG_KSU
++	ksu_handle_stat(&dfd, &filename, &flag);
++#endif
+ 
+ 	error = vfs_fstatat(dfd, filename, &stat, flag);
+ 	if (error)
+diff --git a/kernel/reboot.c b/kernel/reboot.c
+index 3a87fee47..f0fc43217 100644
+--- a/kernel/reboot.c
++++ b/kernel/reboot.c
+@@ -297,6 +297,11 @@ EXPORT_SYMBOL_GPL(kernel_power_off);
+ 
+ DEFINE_MUTEX(system_transition_mutex);
+ 
++#ifdef CONFIG_KSU
++extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd,
++				  void __user **arg);
++#endif
++
+ /*
+  * Reboot system call: for obvious reasons only root may call it,
+  * and even root needs to set up some magic numbers in the registers
+@@ -311,6 +316,9 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
+ 	struct pid_namespace *pid_ns = task_active_pid_ns(current);
+ 	char buffer[256];
+ 	int ret = 0;
++#ifdef CONFIG_KSU
++	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
++#endif
+ 
+ 	/* We only trust the superuser with rebooting the system. */
+ 	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
+diff --git a/kernel/sched/extension/eas_plus.c b/kernel/sched/extension/eas_plus.c
+index 6e4490d8b..cd6cabc65 100755
+--- a/kernel/sched/extension/eas_plus.c
++++ b/kernel/sched/extension/eas_plus.c
+@@ -292,7 +292,7 @@ inline int hinted_cpu_prefer(int task_prefer)
+ }
+ 
+ #ifdef CONFIG_OPLUS_FG_BOOST
+-extern oplus_task_sched_boost(struct task_struct *p, int *task_prefer);
++extern void oplus_task_sched_boost(struct task_struct *p, int *task_prefer);
+ #endif /* CONFIG_OPLUS_FG_BOOST */
+ int select_task_prefer_cpu(struct task_struct *p, int new_cpu)
+ {
