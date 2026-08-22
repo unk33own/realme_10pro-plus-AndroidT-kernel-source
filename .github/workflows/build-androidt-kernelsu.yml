@@ -193,7 +193,7 @@ jobs:
             CROSS_COMPILE_ARM32=arm-linux-gnueabihf- \
             HOSTCC=gcc HOSTCXX=g++ \
             KCFLAGS='-Wno-error=implicit-int -Wno-error=unused-but-set-variable -Wno-error=strict-prototypes' \
-            Image.gz dtbs
+            Image.gz
 
       - name: Collect compile-only artifacts
         if: success()
