@@ -66,6 +66,7 @@ jobs:
           test "$(git -C "$RUNNER_TEMP/realme-androidt-vendor" rev-parse HEAD)" = "$VENDOR_COMMIT"
           test -d "$RUNNER_TEMP/realme-androidt-vendor/vendor/oplus/kernel"
           cp -a "$RUNNER_TEMP/realme-androidt-vendor/vendor" "$GITHUB_WORKSPACE/../vendor"
+          ln -s ../kernel-4.19 "$GITHUB_WORKSPACE/../vendor/kernel-4.19"
 
       - name: Audit Android T source completeness
         id: source-audit
@@ -192,7 +193,7 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabihf- \
             HOSTCC=gcc HOSTCXX=g++ \
-            KCFLAGS='-Wno-error=implicit-int -Wno-error=unused-but-set-variable -Wno-error=strict-prototypes' \
+            KCFLAGS='-Wno-error=implicit-int -Wno-error=unused-but-set-variable -Wno-error=strict-prototypes -Wno-error=pointer-to-int-cast -Wno-error=void-pointer-to-int-cast' \\
             Image.gz
 
       - name: Collect compile-only artifacts
