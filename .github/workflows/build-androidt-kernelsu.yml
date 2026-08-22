@@ -192,7 +192,7 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabihf- \
             HOSTCC=gcc HOSTCXX=g++ \
-            KCFLAGS='-Wno-error=implicit-int -Wno-error=unused-but-set-variable -Wno-error=strict-prototypes -Wno-error=single-bit-bitfield-constant-conversion' \
+            KCFLAGS='-Wno-error=implicit-int -Wno-error=unused-but-set-variable -Wno-error=strict-prototypes' \
             Image.gz dtbs
 
       - name: Collect compile-only artifacts
@@ -228,3 +228,5 @@ jobs:
           if-no-files-found: error
           path: artifacts/
           retention-days: 14
+
+
