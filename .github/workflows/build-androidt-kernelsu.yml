@@ -1,0 +1,230 @@
+name: Build Android T KernelSU Next - RMX3686
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'RMX3686-AndroidT-KSU-source.patch'
+      - '.github/workflows/build-androidt-kernelsu.yml'
+
+permissions:
+  contents: read
+
+env:
+  ARCH: arm64
+  SUBARCH: arm64
+  DEFCONFIG: k6877v1_64_k419_defconfig
+  BUILD_ID: RMX3686_11_A.36
+  VENDOR_COMMIT: da526c48eefc9504f8beb72fb3db6682b1dc9de6
+  KSU_COMMIT: 9b08e88862000d5c50fb2e43a5b75123cf472e54
+  CLANG_MAJOR: '14'
+
+jobs:
+  build:
+    name: Android T kernel + vendor / KernelSU Next legacy
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout Fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison build-essential clang-14 ccache flex gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabihf libelf-dev libncurses-dev libssl-dev \
+            lld-14 llvm-14 python3 rsync unzip zip
+          clang-14 --version
+          ld.lld-14 --version | head -n 1
+
+      - name: Verify and apply source patch
+        run: |
+          set -euxo pipefail
+          test -s RMX3686-AndroidT-KSU-source.patch
+          git apply --check RMX3686-AndroidT-KSU-source.patch
+          git apply RMX3686-AndroidT-KSU-source.patch
+          test -L drivers/base/kernelFwUpdate
+          test "$(readlink drivers/base/kernelFwUpdate)" = '../../../vendor/oplus/kernel/touchpanel/kernelFwUpdate/'
+          test -f drivers/block/zram/hybridswap/Makefile
+          grep -q '^CONFIG_KSU=y$' arch/arm64/configs/$DEFCONFIG
+          grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' arch/arm64/configs/$DEFCONFIG
+
+      - name: Fetch pinned Android T vendor source
+        run: |
+          set -euxo pipefail
+          rm -rf "$RUNNER_TEMP/realme-androidt-vendor" "$GITHUB_WORKSPACE/../vendor"
+          git clone --no-checkout \
+            https://github.com/realme-kernel-opensource/realme_10pro-plus-AndroidT-vendor-source.git \
+            "$RUNNER_TEMP/realme-androidt-vendor"
+          git -C "$RUNNER_TEMP/realme-androidt-vendor" fetch --depth=1 origin "$VENDOR_COMMIT"
+          git -C "$RUNNER_TEMP/realme-androidt-vendor" checkout --detach "$VENDOR_COMMIT"
+          test "$(git -C "$RUNNER_TEMP/realme-androidt-vendor" rev-parse HEAD)" = "$VENDOR_COMMIT"
+          test -d "$RUNNER_TEMP/realme-androidt-vendor/vendor/oplus/kernel"
+          cp -a "$RUNNER_TEMP/realme-androidt-vendor/vendor" "$GITHUB_WORKSPACE/../vendor"
+
+      - name: Audit Android T source completeness
+        id: source-audit
+        continue-on-error: true
+        run: |
+          set -u
+          missing=0
+          report=source-audit-report.txt
+          : > "$report"
+          {
+            echo "device=RMX3686"
+            echo "build=$BUILD_ID"
+            echo "kernel_commit=$(git rev-parse HEAD)"
+            echo "vendor_commit=$VENDOR_COMMIT"
+            echo "source_patch=RMX3686-AndroidT-KSU-source.patch"
+          } >> "$report"
+
+          for required in Makefile Kconfig arch/arm64/configs/$DEFCONFIG \
+              drivers/block/zram/hybridswap/Makefile \
+              "$GITHUB_WORKSPACE/../vendor/oplus/kernel"; do
+            if [ ! -e "$required" ]; then
+              echo "::error::Missing required path: $required"
+              echo "MISSING: $required" >> "$report"
+              missing=1
+            fi
+          done
+
+          while IFS= read -r link; do
+            target=$(readlink "$link")
+            resolved=$(realpath -m "$(dirname "$link")/$target")
+            if [ ! -e "$resolved" ]; then
+              echo "::error file=$link::Broken symlink: $link -> $target (resolved: $resolved)"
+              echo "BROKEN_SYMLINK: $link -> $target (resolved: $resolved)" >> "$report"
+              missing=1
+            fi
+          done < <(find . -type l -not -path './.git/*' -not -path './out/*')
+
+          if [ "$missing" -ne 0 ]; then
+            echo 'Android T source audit failed; compilation is refused.'
+            exit 1
+          fi
+          echo 'source_integrity=ok' >> "$report"
+
+      - name: Upload source audit report
+        if: always() && steps.source-audit.outcome != 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: RMX3686-AndroidT-source-audit-${{ github.sha }}
+          if-no-files-found: error
+          path: source-audit-report.txt
+          retention-days: 14
+
+      - name: Enforce source audit
+        if: steps.source-audit.outcome != 'success'
+        run: |
+          echo 'Refusing to compile an incomplete Android T tree.'
+          exit 1
+
+      - name: Fetch pinned KernelSU Next legacy
+        run: |
+          set -euxo pipefail
+          rm -rf KernelSU-Next
+          git clone --no-checkout --filter=blob:none \
+            https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
+          git -C KernelSU-Next fetch --depth=1 origin "$KSU_COMMIT"
+          git -C KernelSU-Next checkout --detach "$KSU_COMMIT"
+          test "$(git -C KernelSU-Next rev-parse HEAD)" = "$KSU_COMMIT"
+          test -f KernelSU-Next/kernel/Kconfig
+          test -f KernelSU-Next/kernel/Kbuild
+
+      - name: Integrate KernelSU Next legacy
+        run: |
+          set -euxo pipefail
+          test ! -e drivers/kernelsu
+          ln -s ../KernelSU-Next/kernel drivers/kernelsu
+          printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+          sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          grep -q 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile
+          grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+      - name: Verify manual hooks
+        run: |
+          set -euxo pipefail
+          grep -q 'ksu_handle_execveat' fs/exec.c
+          grep -q 'ksu_handle_faccessat' fs/open.c
+          grep -q 'ksu_handle_sys_read' fs/read_write.c
+          grep -q 'ksu_handle_stat' fs/stat.c
+          grep -q 'ksu_handle_sys_reboot' kernel/reboot.c
+          grep -q '^CONFIG_KSU=y$' arch/arm64/configs/$DEFCONFIG
+          grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' arch/arm64/configs/$DEFCONFIG
+          grep -q '^# CONFIG_KSU_KPROBE_HOOK is not set$' arch/arm64/configs/$DEFCONFIG
+
+      - name: Generate Android T configuration
+        run: |
+          set -euxo pipefail
+          rm -rf out
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
+          make O=out ARCH="$ARCH" HOSTCC=gcc HOSTCXX=g++ "$DEFCONFIG"
+          scripts/config --file out/.config \
+            --enable KSU \
+            --enable KSU_MANUAL_HOOK \
+            --disable KSU_KPROBE_HOOK \
+            --enable LTO_NONE \
+            --disable LTO_CLANG
+          make O=out ARCH="$ARCH" HOSTCC=gcc HOSTCXX=g++ olddefconfig
+          grep -q '^CONFIG_KSU=y$' out/.config
+          grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' out/.config
+          grep -q '^CONFIG_LTO_NONE=y$' out/.config
+          ! grep -q '^CONFIG_LTO_CLANG=y$' out/.config
+          cp out/.config out/config.final
+
+      - name: Compile Android T kernel and DTBs
+        run: |
+          set -euxo pipefail
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabihf-
+          export CCACHE_DIR="$HOME/.ccache"
+          export CCACHE_MAXSIZE=2G
+          make -j"$(nproc)" O=out ARCH="$ARCH" \
+            LLVM=1 LLVM_IAS=1 CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 \
+            OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 READELF=llvm-readelf-14 \
+            OBJSIZE=llvm-size-14 STRIP=llvm-strip-14 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabihf- \
+            HOSTCC=gcc HOSTCXX=g++ \
+            KCFLAGS='-Wno-error=implicit-int -Wno-error=unused-but-set-variable -Wno-error=strict-prototypes -Wno-error=single-bit-bitfield-constant-conversion' \
+            Image.gz dtbs
+
+      - name: Collect compile-only artifacts
+        if: success()
+        run: |
+          set -euxo pipefail
+          mkdir -p artifacts
+          cp out/config.final artifacts/config.final
+          find out/arch/arm64/boot -maxdepth 4 -type f \
+            \( -name 'Image' -o -name 'Image.gz' -o -name 'Image.gz-dtb' -o -name '*.dtb' -o -name '*.dtbo' \) \
+            -exec cp --parents '{}' artifacts/ \;
+          test -n "$(find artifacts -type f \( -name 'Image' -o -name 'Image.gz' -o -name 'Image.gz-dtb' \) -print -quit)"
+          {
+            echo "device=RMX3686"
+            echo "build=$BUILD_ID"
+            echo "kernel_version=$(make -s O=out ARCH=arm64 kernelversion)"
+            echo "kernel_commit=$(git rev-parse HEAD)"
+            echo "vendor_commit=$VENDOR_COMMIT"
+            echo "ksu_commit=$KSU_COMMIT"
+            echo "clang=clang-14"
+            echo "artifact_type=compile-only"
+            echo "flashable=false"
+            echo "boot_image_repackaged=false"
+            echo "vendor_boot_used=false"
+          } > artifacts/build-metadata.txt
+          sha256sum artifacts/config.final artifacts/build-metadata.txt > artifacts/SHA256SUMS
+
+      - name: Upload compile-only artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RMX3686-AndroidT-KernelSU-compile-only-${{ github.sha }}
+          if-no-files-found: error
+          path: artifacts/
+          retention-days: 14
