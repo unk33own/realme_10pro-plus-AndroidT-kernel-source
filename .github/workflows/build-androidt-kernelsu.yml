@@ -151,7 +151,7 @@ jobs:
         run: |
           set -euxo pipefail
           sed -i '/^[[:space:]]*ccflags-y += -DKSU_HAS_PATH_UMOUNT[[:space:]]*$/d' KernelSU-Next/kernel/Kbuild
-          ! grep -q 'KSU_HAS_PATH_UMOUNT
+          ! grep -q 'KSU_HAS_PATH_UMOUNT' KernelSU-Next/kernel/Kbuild
 
       - name: Verify manual hooks
         run: |
