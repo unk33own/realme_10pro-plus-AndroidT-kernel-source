@@ -193,8 +193,9 @@ jobs:
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabihf- \
             HOSTCC=gcc HOSTCXX=g++ \
-            KCFLAGS='-Wno-error=implicit-int -Wno-error=unused-but-set-variable -Wno-error=strict-prototypes -Wno-error=pointer-to-int-cast -Wno-error=void-pointer-to-int-cast -I$GITHUB_WORKSPACE/drivers/misc/mediatek/scp/include' \
+            KCFLAGS="-Wno-error=implicit-int -Wno-error=unused-but-set-variable -Wno-error=strict-prototypes -Wno-error=pointer-to-int-cast -Wno-error=void-pointer-to-int-cast -I$GITHUB_WORKSPACE/drivers/misc/mediatek/scp/include" \
             Image.gz
+         
 
       - name: Collect compile-only artifacts
         if: success()
