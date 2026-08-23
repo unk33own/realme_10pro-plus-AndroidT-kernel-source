@@ -147,6 +147,12 @@ jobs:
           grep -q 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile
           grep -q 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
+      - name: Fix KernelSU legacy backport selection
+        run: |
+          set -euxo pipefail
+          sed -i '/^[[:space:]]*ccflags-y += -DKSU_HAS_PATH_UMOUNT[[:space:]]*$/d' KernelSU-Next/kernel/Kbuild
+          ! grep -q 'KSU_HAS_PATH_UMOUNT
+
       - name: Verify manual hooks
         run: |
           set -euxo pipefail
